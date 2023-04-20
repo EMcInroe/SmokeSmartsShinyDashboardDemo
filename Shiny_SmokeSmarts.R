@@ -4,9 +4,17 @@ library(data.table) # fread()
 library(dplyr)
 library(knitr)
 library(stringr)
-library(cowplot)
 library(shinydashboard)
 library(shiny)
+library(maps)
+library(mapproj)
+library(plyr)
+library(ggmap)
+library(zipcodeR)
+library(tigris)
+library(sf)
+library(tidyverse)
+library(viridis)
 
 setwd("L:/Lab/SmokeSense/Analysis/Smoke Smarts Data Analysis/v2 2021")
 
@@ -56,6 +64,32 @@ percents_long<-fread("Figures/barrier_percents_CI.csv", header=TRUE, drop=1)
 CItable <-fread("Figures/CITable.csv", header=TRUE, drop=1)
 CItable$Behavior<-as.factor(sapply(CItable$Behavior, function(x) gsub("AVOIDSTRENUOUS","AVOID",x)))
 estDiff<-fread("Figures/estDiff.csv", header=TRUE, drop=1)
+
+#### Maps Data Set ####
+df<-fread("AllSurveys_01-04-21.csv", header = TRUE, drop=c(5,6,8,9,10))
+zip<-unique(df$ZipCode)
+
+#function gets zipcode, state, latitude and longitude
+zipcode<-reverse_zipcode(zip)[,c(1,7,8,9)] 
+zipcode<-subset(zipcode, lat!="NA")
+
+#Adds zipcode information to data frame
+df_zip<-left_join(df, zipcode, by = c("ZipCode" = "zipcode"))
+
+#removes users that did not answer questions
+df_zip<-subset(df_zip, QuestionID!="NA")
+
+#Counts number of users for each zipcode and combines it with the zipcode map data
+zip_count<-df_zip %>% group_by(ZipCode) %>% dplyr::summarise(n = n())
+zip_count<-left_join(zip_count, zipcode, by = c("ZipCode" = "zipcode"))
+zip_count<-subset(zip_count, lat!="NA")
+
+#Gets map of US with state lines
+states<-states(cb=TRUE)
+
+#counts number of users for each state
+state_count<-df_zip %>% group_by(state) %>% dplyr::summarise(n=n())
+states<-left_join(states,state_count,  by=c("STUSPS"="state"))
 
 ##### Summary Statistics Table Selection Function
 
@@ -287,7 +321,7 @@ barriers_barplot<-function(data, barriers = "All", behavior = "All", count = "Co
   
   if(!("All" %in% behavior)) {
   data<-data %>%
-    filter(Behavior %in% behavior)
+    dplyr::filter(Behavior %in% behavior)
   } else {
     plot_title_behavior<-"all barriers"
   }
@@ -296,7 +330,7 @@ barriers_barplot<-function(data, barriers = "All", behavior = "All", count = "Co
   }
   
   
-  label_count<-data  %>% group_by(Barrier) %>% summarise(n=n())
+  label_count<-data  %>% group_by(Barrier) %>% dplyr::summarise(n=n())
   label_count$barrier<-NA
   
   ggplot(data, aes(c(Behavior), fill=Barrier)) + 
@@ -312,7 +346,7 @@ barriers_barplot<-function(data, barriers = "All", behavior = "All", count = "Co
   } else {
     if(!("All" %in% barriers)) {
       data <- data %>% 
-        filter(Barrier %in% barriers)
+        dplyr::filter(Barrier %in% barriers)
       plot_title_barrier<- stringr::str_glue("{paste0(barriers, collapse=', ')} barriers")
     } else{
       plot_title_barrier<-"all barriers"
@@ -323,7 +357,7 @@ barriers_barplot<-function(data, barriers = "All", behavior = "All", count = "Co
     
     if(!("All" %in% behavior)) {
       data<-data %>%
-        filter(Behavior %in% behavior)
+        dplyr::filter(Behavior %in% behavior)
     } else {
       plot_title_behavior<-"all barriers"
     }
@@ -345,7 +379,7 @@ barriers_extreme_percents<-function(data, barriers = "All", behavior = "All", ex
  
     if(!("All" %in% barriers)) {
       data <- data %>% 
-        filter(Barrier %in% barriers)
+        dplyr::filter(Barrier %in% barriers)
       plot_title_barrier<- stringr::str_glue("{paste0(barriers, collapse=', ')} barriers")
     } else{
       plot_title_barrier<-"all barriers"
@@ -356,7 +390,7 @@ barriers_extreme_percents<-function(data, barriers = "All", behavior = "All", ex
     
     if(!("All" %in% behavior)) {
       data<-data %>%
-        filter(Behavior %in% behavior)
+        dplyr::filter(Behavior %in% behavior)
     } else {
       plot_title_behavior<-"all barriers"
     }
@@ -367,7 +401,7 @@ barriers_extreme_percents<-function(data, barriers = "All", behavior = "All", ex
 
     if(!("All" %in% extreme)) {
       data <- data %>% 
-        filter(Different %in% extreme)
+        dplyr::filter(Different %in% extreme)
       plot_title_extreme<- stringr::str_glue("{paste0(extreme, collapse=', ')} extreme")
 
     } else{
@@ -401,7 +435,7 @@ if ("All" %in% extreme) {
 CI_plot<-function(data, behavior = "All") {
   if(!("All" %in% behavior)) {
     data <- data %>% 
-      filter(Behavior %in% behavior)
+      dplyr::filter(Behavior %in% behavior)
     plot_title_behavior<- stringr::str_glue("{paste0(behavior, collapse=', ')} behaviors")
   } else{
     plot_title_behavior<-"all behaviors"
@@ -425,7 +459,7 @@ CI_plot<-function(data, behavior = "All") {
 model_summary<-function(data, behavior = "All") {
   if(!("All" %in% behavior)) {
     data <- data %>% 
-      filter(Behavior %in% behavior)
+      dplyr::filter(Behavior %in% behavior)
     table_title_behavior<- stringr::str_glue("{paste0(behavior, collapse=', ')} behaviors")
   } else{
     table_title_behavior<-"all behaviors"
@@ -434,6 +468,33 @@ model_summary<-function(data, behavior = "All") {
     return(NULL)
   }
   return(data)
+}
+
+
+##### Map Function
+count_map<-function(map1, counts = "State", data2=state_count, data3=zip_count) {
+  if(counts == "State"){
+    my_breaks <- c(200, 1000, 10000, 300000)
+    ggplot(map1, aes(fill = n)) + geom_sf() + theme_void() + 
+      scale_fill_gradientn(colours=rev(magma(6)),
+                           name="Number of Users",
+                           na.value = "grey100", 
+                           trans = "log",
+                           breaks = my_breaks, labels = my_breaks) + 
+      coord_sf(xlim=c(-155, -60), ylim = c(18,60)) + labs(title = "Number of Users by State") +
+      theme(legend.position = "bottom",legend.text = element_text(size=7, angle = 45),legend.title = element_text(size=8, vjust=1))
+  } else {
+    my_breaks <- c(10, 50, 100, 200, 500)
+    ggplot(map1) + geom_sf() + theme_void() + 
+      geom_point(data3, mapping = aes(x=lng, y=lat,group = ZipCode, color = n)) + 
+      coord_sf(xlim=c(-155, -60), ylim = c(18,60)) + 
+      scale_color_gradientn(colours=rev(magma(6)),
+                            name="Number of Users",
+                            na.value = "grey100", 
+                            trans = "log",
+                            breaks = my_breaks, labels = my_breaks) + labs(title = "Number of Users by Zipcode")+
+      theme(legend.position = "bottom",legend.text = element_text(size=7, angle = 45),legend.title = element_text(size=8, vjust=1))
+  }
 }
 ############################################################################
 #################             Set Up Dashboard           ###################
@@ -446,7 +507,8 @@ ui<- dashboardPage(
       menuItem("Exploratory Data Analysis", tabName="exploratory", icon=icon("fire", lib="glyphicon")),
       menuItem("Profile Traits", tabName="traits",icon=icon("user")),
       menuItem("Behavior Barriers", tabName="barriers", icon=icon("bell")),
-      menuItem("Model Results", tabName = "models", icon = icon("lightbulb"))
+      menuItem("Model Results", tabName = "models", icon = icon("lightbulb")),
+      menuItem("User Distribution Map",tabName = 'map', icon = icon("person"))
     )
   ),
   dashboardBody(
@@ -581,7 +643,7 @@ ui<- dashboardPage(
               )
            )
       ),
-
+########################### Models #############################
       tabItem(tabName = "models",
            h2("Model Results"),
            fluidPage(
@@ -604,10 +666,24 @@ ui<- dashboardPage(
                          is larger than the negative version."))))
 
             )
-       )
+      ),
+######################### Map ###########################
+           tabItem(tabName = "map",
+                   h2("Distribution of Users in the United States"),
+           fluidPage(
+               column(2, selectInput(
+                 inputId = "select_distribution",
+                 label = "Select Level of Distribution",
+                 choices = c(
+                   "State",
+                   "Zipcode"
+                 ),
+                 selected = "State",
+                 multiple = FALSE
+               )),
+               column(10, plotOutput("plotmap")))))
+          )
      )
-    )
-  )
 
 
 server<-function(input,output) {
@@ -649,6 +725,10 @@ server<-function(input,output) {
   
   output$ver_model<-renderTable(
     model_summary(estDiff, input$select_behavior), bordered = TRUE, striped = TRUE
+  )
+  
+  output$plotmap<-renderPlot(
+    count_map(states, input$select_distribution), height = 600, width = 800
   )
   
 }
