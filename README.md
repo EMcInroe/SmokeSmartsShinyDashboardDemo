@@ -1,2 +1,2 @@
 # SmokeSenseShinyDashboard
-This dashboard includes data analysis for the smoke sense app for the EPA. ShinyR is used to create a dashboard with 4 pages. The graphs and tables are interactive to allow users to explore the data and draw conclusions. 
+This repository includes script to create a dashboard to display results from analysis on a survey conducted by the Smoke Sense App. The analysis is ongoing, so the data is not available, only the script that creates the dashboard. ShinyR is used to create a dashboard with 4 pages. The graphs and tables are interactive to allow users to explore the data and draw conclusions. 
