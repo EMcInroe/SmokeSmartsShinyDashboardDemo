@@ -16,7 +16,7 @@ library(sf)
 library(tidyverse)
 library(viridis)
 
-setwd("L:/Lab/SmokeSense/Analysis/Smoke Smarts Data Analysis/v2 2021")
+setwd("")
 
 #############################################################################
 ###############                Load Data Sets             ###################
